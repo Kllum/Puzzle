@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Puzzle Harry Potter</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Arial, sans-serif;
+    background: #111;
+    color: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    min-height: 100vh;
+    gap: 16px;
+  }
+  h1 { text-align: center; }
+  .btn {
+    padding: 10px 20px;
+    border: none;
+    color: #fff;
+    font-size: 16px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .btn-orange { background: #ff8c00; }
+  .btn-green  { background: #228B22; }
+  .btn-grey   { background: #555; }
+  .btn:disabled { background: #555; cursor: default; }
+  #controls { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+  #puzzle {
+    display: grid;
+    grid-template-columns: repeat(4, 100px);
+    grid-template-rows: repeat(4, 100px);
+    gap: 2px;
+  }
+  .piece {
+    width: 100px;
+    height: 100px;
+    background-size: 400px 400px;
+    background-repeat: no-repeat;
+    border: 1px solid #333;
+    transition: transform .2s;
+    cursor: pointer;
+  }
+  .piece.empty { background: #111 !important; cursor: default; }
+  .piece:not(.empty):hover { transform: scale(1.05); }
+  #winContainer {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    color: #ffcc00;
+    font-size: 1.5em;
+    gap: 12px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Puzzle do Harry Potter</h1>
+
+<div id="controls">
+  <button id="musicBtn" class="btn btn-grey" onclick="toggleMusic()">Música: Off</button>
+  <button id="startBtn" class="btn btn-orange" onclick="startPuzzle()">Começar o Puzzle</button>
+</div>
+
+<div id="puzzle"></div>
+
+<div id="winContainer">
+  <div>🎉 Você ganhou! 🎉</div>
+  <button id="submitBtn" class="btn btn-orange" onclick="submitForm()">Enviar</button>
+</div>
+
+<script>
+  const IMAGE_URL = 'https://i.pinimg.com/736x/f4/d1/af/f4d1afe5ecdeffcc3abe70de76a08ed5.jpg';
+  const BG_MUSIC_URL = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+  const FORM_URL = 'https://docs.google.com/forms/d/e/1FAIpQLSdwhlo8fdEGi7vjCGlY2FeBCBfhYdnQjgGCLKFCGgceTNnjGw/formResponse';
+  const ENTRY_ID = 'entry.1196602189';
+
+  const SIZE = 4;
+  const TOTAL = SIZE * SIZE;
+
+  let musicEnabled = false;
+  let gameStarted = false;
+  let bgAudio = null;
+  let pieces = [];
+  let emptyIndex = TOTAL - 1;
+
+  const correctPositions = [];
+  for (let i = 0; i < TOTAL - 1; i++) {
+    const row = Math.floor(i / SIZE);
+    const col = i % SIZE;
+    correctPositions.push(`-${col * 100}px -${row * 100}px`);
+  }
+  correctPositions.push('empty');
+
+  function toggleMusic() {
+    musicEnabled = !musicEnabled;
+    const btn = document.getElementById('musicBtn');
+    btn.textContent = musicEnabled ? 'Música: On' : 'Música: Off';
+    btn.className = musicEnabled ? 'btn btn-green' : 'btn btn-grey';
+
+    if (gameStarted) {
+      if (musicEnabled) playBgMusic();
+      else stopBgMusic();
+    }
+  }
+
+  function playBgMusic() {
+    if (!bgAudio) {
+      bgAudio = new Audio(BG_MUSIC_URL);
+      bgAudio.loop = true;
+      bgAudio.volume = 0.2;
+    }
+    bgAudio.play().catch(() => {});
+  }
+
+  function stopBgMusic() {
+    if (bgAudio) {
+      bgAudio.pause();
+      bgAudio.currentTime = 0;
+    }
+  }
+
+  function playVictorySound() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.18);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.4);
+        osc.start(ctx.currentTime + i * 0.18);
+        osc.stop(ctx.currentTime + i * 0.18 + 0.4);
+      });
+    } catch (_) {}
+  }
+
+  function buildPieces() {
+    pieces = [];
+    for (let i = 0; i < TOTAL; i++) {
+      if (i < TOTAL - 1) {
+        const row = Math.floor(i / SIZE);
+        const col = i % SIZE;
+        pieces.push({ bgPos: `-${col * 100}px -${row * 100}px`, empty: false });
+      } else {
+        pieces.push({ bgPos: '', empty: true });
+      }
+    }
+    emptyIndex = TOTAL - 1;
+  }
+
+  function getNeighbors(idx) {
+    const row = Math.floor(idx / SIZE);
+    const col = idx % SIZE;
+    return [
+      { r: row - 1, c: col },
+      { r: row + 1, c: col },
+      { r: row, c: col - 1 },
+      { r: row, c: col + 1 },
+    ]
+      .filter(({ r, c }) => r >= 0 && r < SIZE && c >= 0 && c < SIZE)
+      .map(({ r, c }) => r * SIZE + c);
+  }
+
+  function shuffle() {
+    for (let i = 0; i < 1000; i++) {
+      const neighbors = getNeighbors(emptyIndex);
+      const rnd = neighbors[Math.floor(Math.random() * neighbors.length)];
+      const tmp = pieces[rnd];
+      pieces[rnd] = pieces[emptyIndex];
+      pieces[emptyIndex] = tmp;
+      emptyIndex = rnd;
+    }
+  }
+
+  function renderPuzzle() {
+    const grid = document.getElementById('puzzle');
+    grid.innerHTML = '';
+    pieces.forEach((piece, i) => {
+      const div = document.createElement('div');
+      div.className = 'piece' + (piece.empty ? ' empty' : '');
+      if (!piece.empty) {
+        div.style.backgroundImage = `url(${IMAGE_URL})`;
+        div.style.backgroundPosition = piece.bgPos;
+      }
+      div.addEventListener('click', () => movePiece(i));
+      grid.appendChild(div);
+    });
+  }
+
+  function movePiece(index) {
+    const neighbors = getNeighbors(emptyIndex);
+    if (!neighbors.includes(index)) return;
+
+    const tmp = pieces[index];
+    pieces[index] = pieces[emptyIndex];
+    pieces[emptyIndex] = tmp;
+    emptyIndex = index;
+
+    renderPuzzle();
+    checkWin();
+  }
+
+  function checkWin() {
+    for (let i = 0; i < TOTAL; i++) {
+      if (i === emptyIndex) continue;
+      if (pieces[i].bgPos !== correctPositions[i]) return;
+    }
+    stopBgMusic();
+    playVictorySound();
+    document.getElementById('winContainer').style.display = 'flex';
+  }
+
+  function startPuzzle() {
+    buildPieces();
+    shuffle();
+    renderPuzzle();
+
+    document.getElementById('winContainer').style.display = 'none';
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('submitBtn').disabled = false;
+    document.getElementById('submitBtn').textContent = 'Enviar';
+
+    gameStarted = true;
+
+    if (musicEnabled) playBgMusic();
+  }
+
+  async function submitForm() {
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.textContent = 'Enviando...';
+
+    const body = new URLSearchParams({ [ENTRY_ID]: 'O puzzle do Harry Potter foi completado!' });
+
+    try {
+      await fetch(FORM_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      });
+      btn.textContent = 'Enviado!';
+    } catch (_) {
+      btn.textContent = 'Erro ao enviar';
+      btn.disabled = false;
+    }
+  }
+</script>
+
+</body>
+</html>
